@@ -22,6 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 import argparse
+import getpass
 from pathlib import Path
 from typing import Sequence
 
@@ -29,6 +30,7 @@ EXAMPLE_USE = '''
 Example Use:
     email-dump --from example-email@email.com --dir dir/to/dump
     email-dump --from example-email@email.com
+    email-dump --from example-email@email.com --email youemail@example.com --pass password
 '''
 
 
@@ -36,6 +38,16 @@ def _check_dir(dirpath: str) -> str:
     if Path(dirpath).is_dir():
         return dirpath
     raise NotADirectoryError(dirpath)
+
+
+def _prompt_email_password() -> tuple[str, str]:
+    email = input('Email: ')
+    password = getpass.getpass()
+    return email, password
+
+
+class Email:
+    pass
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -49,7 +61,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                         help='email of the user to dump from.', required=True)
     parser.add_argument('--dir', '-d', type=_check_dir,
                         help='The directory to dump all the emails to.')
-    args = parser.parse_args()
-    print(args)
+
+    parser.add_argument('--email', type=str,
+                        help='The email address used to login.')
+    parser.add_argument('--pass', type=str, help='The password used to login')
+
+    args = parser.parse_args(argv)
+
+    download_dir = args.dir if args.dir else '.'
+
+    print(args, download_dir)
 
     return 0
