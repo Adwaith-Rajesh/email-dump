@@ -21,16 +21,20 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
+from __future__ import annotations
+
 import argparse
 import getpass
+import imaplib
 from pathlib import Path
+from types import TracebackType
 from typing import Sequence
 
 EXAMPLE_USE = '''
 Example Use:
     email-dump --from example-email@email.com --dir dir/to/dump
     email-dump --from example-email@email.com
-    email-dump --from example-email@email.com --email youemail@example.com --pass password
+    email-dump --from example-email@email.com --email youemail@example.com --password password
 '''
 
 
@@ -47,7 +51,36 @@ def _prompt_email_password() -> tuple[str, str]:
 
 
 class Email:
-    pass
+    def __init__(self, email: str, password: str) -> None:
+        self.conn = imaplib.IMAP4_SSL('imap.gmail.com')
+        self.email = email
+        self.password = password
+
+    def __enter__(self) -> Email:
+        self.login()
+        return self
+
+    def __exit__(self, exec_type: type[BaseException] | None,
+                 exec_val: BaseException | None, traceback: TracebackType | None) -> None:
+        pass
+
+    def login(self) -> None:
+        self.conn.login(self.email, self.password)
+
+    def get_emails_from_user(self, from_email: str) -> list[imaplib._AnyResponseData]:
+        self.conn.select('Inbox')
+        _, count = self.conn.search(None, 'FROM', f'"{from_email}"')
+
+        emails: list[imaplib._AnyResponseData] = []
+
+        for i in count[0].split():
+            _, data = self.conn.fetch(i, '(RFC822)')
+            emails.append(data)
+
+        return emails
+
+    def save_email_from_user(self, from_user: str, dir: str) -> None:
+        pass
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -64,12 +97,18 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     parser.add_argument('--email', type=str,
                         help='The email address used to login.')
-    parser.add_argument('--pass', type=str, help='The password used to login')
+    parser.add_argument('--password', type=str,
+                        help='The password used to login')
 
     args = parser.parse_args(argv)
 
     download_dir = args.dir if args.dir else '.'
+    print(download_dir)
 
-    print(args, download_dir)
+    if args.email is None or args.password is None:
+        args.email, args.password = _prompt_email_password()
+
+    with Email(args.email, args.password) as email:
+        print(email.get_emails_from_user(vars(args)['from']))
 
     return 0
