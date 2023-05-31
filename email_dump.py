@@ -24,13 +24,14 @@ SOFTWARE.
 from __future__ import annotations
 
 import argparse
-import email
 import getpass
-import imaplib
 import os
 from pathlib import Path
-from types import TracebackType
 from typing import Sequence
+
+from imap_tools import AND
+from imap_tools import MailBox
+from imap_tools import MailMessage
 
 EXAMPLE_USE = '''
 Example Use:
@@ -57,58 +58,23 @@ def _save_file(filepath: str, content: bytes) -> None:
         f.write(content)
 
 
-class Email:
-    def __init__(self, email_add: str, password: str) -> None:
-        self.conn = imaplib.IMAP4_SSL('imap.gmail.com')
-        self.email_add = email_add
-        self.password = password
+def _save_message(msg: MailMessage, dirpath: str) -> None:
+    uid = msg.uid
+    if not uid:
+        return
 
-    def __enter__(self) -> Email:
-        self.login()
-        return self
+    Path(os.path.join(dirpath, uid)).mkdir(exist_ok=True)
+    body = msg.text or msg.html
+    subject = msg.subject
 
-    def __exit__(self, exec_type: type[BaseException] | None,
-                 exec_val: BaseException | None, traceback: TracebackType | None) -> None:
-        pass
+    if body == '\r\n':
+        body = ''
 
-    def login(self) -> None:
-        self.conn.login(self.email_add, self.password)
+    for att in msg.attachments:
+        _save_file(os.path.join(dirpath, uid, att.filename), att.payload)
 
-    def get_emails_from_user(self, from_email: str) -> list[imaplib._AnyResponseData]:
-        self.conn.select('Inbox')
-        _, count = self.conn.search(None, 'FROM', f'"{from_email}"')
-
-        emails: list[imaplib._AnyResponseData] = []
-
-        for i in count[0].split():
-            _, data = self.conn.fetch(i, '(RFC822)')
-            emails.append(data)
-
-        return emails
-
-    def save_email_from_user(self, from_email: str, dir: str) -> None:
-        emails = self.get_emails_from_user(from_email=from_email)
-
-        for idx, e in enumerate(emails):
-            Path(os.path.join(dir, str(idx))).mkdir(exist_ok=True)
-
-            if not isinstance(e, tuple):
-                return
-
-            raw_email = e[0][1]
-            raw_email_string = raw_email.decode('utf-8')
-            email_message = email.message_from_string(raw_email_string)
-
-            for part in email_message.walk():
-                if part.get_content_maintype() == 'multipart':
-                    continue
-                if part.get('Content-Disposition') is None:
-                    continue
-                filename = part.get_filename()
-                if bool(filename):
-                    file_path = os.path.join(dir, str(idx), filename)
-                    _save_file(filepath=file_path,
-                               content=part.get_payload(decode=True))
+    _save_file(os.path.join(dirpath, uid, str(uid) + '.txt'),
+               bytes(subject + '\n' + body, encoding='utf-8'))
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -135,7 +101,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.email is None or args.password is None:
         args.email, args.password = _prompt_email_password()
 
-    with Email(args.email, args.password) as mail:
-        mail.save_email_from_user(vars(args)['from'], download_dir)
+    with MailBox('imap.gmail.com').login(args.email, args.password) as mailbox:
+        for msg in mailbox.fetch(criteria=AND(from_=vars(args)['from'])):
+            _save_message(msg, download_dir)
 
     return 0
